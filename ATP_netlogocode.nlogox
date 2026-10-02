@@ -49,7 +49,7 @@ globals [
   erosion-rate erosion-threshold erosion-curvature recent-window h-max
   ;; social influence
   lambda-peer
-  own-adapt            ;; 0 = faithful to report (see notes); >0 = optional extension
+  own-adapt            ;; 0 
   ;; experiment
   run-length benchmark-difficulties
 ]
