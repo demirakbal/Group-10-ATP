@@ -2110,5 +2110,82 @@ Both record final summaries only. Distinct deterministic seeds are assigned by B
         </enumeratedValueSet>
       </constants>
     </experiment>
+    <experiment name="skill-ai-surface" repetitions="30" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
+      <setup>random-seed (10000 + behaviorspace-run-number) setup set run-length 3000</setup>
+      <go>go</go>
+      <metrics>
+        <metric>mean-skill</metric>
+        <metric>mean-trust</metric>
+        <metric>mean-delegation</metric>
+        <metric>mean-quality</metric>
+        <metric>mean-duration</metric>
+        <metric>mean-observed-duration</metric>
+        <metric>mean-learning</metric>
+        <metric>mean-erosion</metric>
+        <metric>mean-tasks</metric>
+        <metric>group-mean-skill 0</metric>
+        <metric>group-skill-change 0</metric>
+        <metric>group-mean-deleg 0</metric>
+        <metric>group-bench-change 0</metric>
+        <metric>group-benchmark 0 40</metric>
+        <metric>group-benchmark-change 0 40</metric>
+        <metric>group-benchmark 0 55</metric>
+        <metric>group-benchmark-change 0 55</metric>
+        <metric>group-benchmark 0 70</metric>
+        <metric>group-benchmark-change 0 70</metric>
+        <metric>group-mean-skill 1</metric>
+        <metric>group-skill-change 1</metric>
+        <metric>group-mean-deleg 1</metric>
+        <metric>group-bench-change 1</metric>
+        <metric>group-benchmark 1 40</metric>
+        <metric>group-benchmark-change 1 40</metric>
+        <metric>group-benchmark 1 55</metric>
+        <metric>group-benchmark-change 1 55</metric>
+        <metric>group-benchmark 1 70</metric>
+        <metric>group-benchmark-change 1 70</metric>
+        <metric>group-mean-skill 2</metric>
+        <metric>group-skill-change 2</metric>
+        <metric>group-mean-deleg 2</metric>
+        <metric>group-bench-change 2</metric>
+        <metric>group-benchmark 2 40</metric>
+        <metric>group-benchmark-change 2 40</metric>
+        <metric>group-benchmark 2 55</metric>
+        <metric>group-benchmark-change 2 55</metric>
+        <metric>group-benchmark 2 70</metric>
+        <metric>group-benchmark-change 2 70</metric>
+        <metric>10000 + behaviorspace-run-number</metric>
+        <metric>mean [initial-skill] of humans</metric>
+        <metric>mean [skill - initial-skill] of humans</metric>
+        <metric>mean [latest-deleg] of humans with [n-tasks &gt; 0]</metric>
+      </metrics>
+      <constants>
+        <enumeratedValueSet variable="mu-skill">
+          <value value="20" />
+          <value value="30" />
+          <value value="40" />
+          <value value="50" />
+          <value value="60" />
+          <value value="70" />
+          <value value="80" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="ai-capability">
+          <value value="20" />
+          <value value="30" />
+          <value value="40" />
+          <value value="50" />
+          <value value="60" />
+          <value value="70" />
+          <value value="80" />
+          <value value="90" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="lambda-peer">
+          <value value="0" />
+          <value value="0.03" />
+        </enumeratedValueSet>
+        <enumeratedValueSet variable="mu-diff">
+          <value value="55" />
+        </enumeratedValueSet>
+      </constants>
+    </experiment>
   </experiments>
 </model>
