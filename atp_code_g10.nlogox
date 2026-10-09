@@ -560,7 +560,7 @@ end
     <button x="125" y="235" height="35" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="Setup">setup</button>
     <button x="195" y="235" height="35" disableUntilTicks="false" forever="true" kind="Observer" width="55" display="Go">go</button>
     <monitor x="780" precision="3" y="10" height="65" fontSize="11" width="220" display="Mean skill">mean-skill</monitor>
-    <monitor x="1010" precision="3" y="250" height="65" fontSize="11" width="220" display="Tasks per human">mean-tasks</monitor>
+    <monitor x="1010" precision="3" y="250" height="65" fontSize="11" width="220" display="Mean completed tasks per human">mean-tasks</monitor>
     <plot x="10" autoPlotX="true" yMax="100.0" autoPlotY="false" yAxis="Skill" y="440" xMin="0.0" height="230" legend="true" xMax="3000.0" yMin="0.0" width="400" xAxis="Ticks" display="Skill by initial tertile">
       <setup></setup>
       <update></update>
@@ -585,8 +585,8 @@ end
     <monitor x="1010" precision="2" y="90" height="65" fontSize="11" width="220" display="Loss greater than 5 points (%)">percent-skill-loss humans 5</monitor>
     <monitor x="1010" precision="2" y="10" height="65" fontSize="11" width="220" display="Mean skill change">mean [skill - initial-skill] of humans</monitor>
     <monitor x="780" precision="2" y="170" height="65" fontSize="11" width="220" display="Recent delegation (%)">recent-delegation-percent</monitor>
-    <monitor x="1010" precision="2" y="170" height="65" fontSize="11" width="220" display="Recent net learning / task">recent-net-learning</monitor>
-    <monitor x="780" precision="2" y="250" height="65" fontSize="11" width="220" display="Unaided change: difficulty 55">mean-benchmark-change 55</monitor>
+    <monitor x="1010" precision="2" y="170" height="65" fontSize="11" width="220" display="Recent learning minus erosion / task">recent-net-learning</monitor>
+    <monitor x="780" precision="2" y="250" height="65" fontSize="11" width="220" display="Unaided score change (difficulty slider)">mean [(quality-curve skill mu-diff) - (quality-curve initial-skill mu-diff)] of humans</monitor>
     <plot x="10" autoPlotX="false" yMax="100" autoPlotY="false" yAxis="Average work delegated to AI (%)" y="680" xMin="0" height="230" legend="true" xMax="100" yMin="0" width="400" xAxis="Initial human skill" display="Initial skill versus AI delegation"><setup /><update>plot-initial-skill-delegation</update><pen interval="1.0" mode="2" display="Low" color="-2674135" legend="true"><setup /><update /></pen><pen interval="1.0" mode="2" display="Middle" color="-10899396" legend="true"><setup /><update /></pen><pen interval="1.0" mode="2" display="High" color="-13345367" legend="true"><setup /><update /></pen></plot>
     <plot x="830" autoPlotX="true" yMax="1.0" autoPlotY="false" yAxis="Delegated share" y="440" xMin="0.0" height="230" legend="true" xMax="3000.0" yMin="0.0" width="400" xAxis="Ticks" display="Recent delegation by tertile (100 ticks)">
       <setup></setup>
