@@ -587,7 +587,22 @@ end
     <monitor x="780" precision="2" y="170" height="65" fontSize="11" width="220" display="Recent delegation (%)">recent-delegation-percent</monitor>
     <monitor x="1010" precision="2" y="170" height="65" fontSize="11" width="220" display="Recent learning minus erosion / task">recent-net-learning</monitor>
     <monitor x="780" precision="2" y="250" height="65" fontSize="11" width="220" display="Unaided score change (difficulty slider)">mean [(quality-curve skill mu-diff) - (quality-curve initial-skill mu-diff)] of humans</monitor>
-    <plot x="10" autoPlotX="false" yMax="100" autoPlotY="false" yAxis="Average work delegated to AI (%)" y="680" xMin="0" height="230" legend="true" xMax="100" yMin="0" width="400" xAxis="Initial human skill" display="Initial skill versus AI delegation"><setup /><update>plot-initial-skill-delegation</update><pen interval="1.0" mode="2" display="Low" color="-2674135" legend="true"><setup /><update /></pen><pen interval="1.0" mode="2" display="Middle" color="-10899396" legend="true"><setup /><update /></pen><pen interval="1.0" mode="2" display="High" color="-13345367" legend="true"><setup /><update /></pen></plot>
+    <plot x="10" autoPlotX="false" yMax="100.0" autoPlotY="false" yAxis="Average work delegated to AI (%)" y="680" xMin="0.0" height="230" legend="true" xMax="100.0" yMin="0.0" width="400" xAxis="Initial human skill" display="Initial skill versus AI delegation">
+      <setup></setup>
+      <update>plot-initial-skill-delegation</update>
+      <pen interval="1.0" mode="2" display="Low" color="-2674135" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+      <pen interval="1.0" mode="2" display="Middle" color="-10899396" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+      <pen interval="1.0" mode="2" display="High" color="-13345367" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+    </plot>
     <plot x="830" autoPlotX="true" yMax="1.0" autoPlotY="false" yAxis="Delegated share" y="440" xMin="0.0" height="230" legend="true" xMax="3000.0" yMin="0.0" width="400" xAxis="Ticks" display="Recent delegation by tertile (100 ticks)">
       <setup></setup>
       <update></update>
@@ -604,7 +619,26 @@ end
         <update>if ticks mod 10 = 0 [let value-now (recent-delegation (humans with [skill-group = 2])) if is-number? value-now [plotxy ticks value-now]]</update>
       </pen>
     </plot>
-    <plot x="420" autoPlotX="false" yMax="100" autoPlotY="false" yAxis="Skill gained (+) or lost (-)" y="680" xMin="0" height="230" legend="true" xMax="100" yMin="-100" width="400" xAxis="Average work delegated to AI (%)" display="AI delegation versus skill change"><setup /><update>plot-delegation-skill-change</update><pen interval="1.0" mode="0" display="No skill change" color="-7500403" legend="true"><setup /><update /></pen><pen interval="1.0" mode="2" display="Low" color="-2674135" legend="true"><setup /><update /></pen><pen interval="1.0" mode="2" display="Middle" color="-10899396" legend="true"><setup /><update /></pen><pen interval="1.0" mode="2" display="High" color="-13345367" legend="true"><setup /><update /></pen></plot>
+    <plot x="420" autoPlotX="false" yMax="100.0" autoPlotY="false" yAxis="Skill gained (+) or lost (-)" y="680" xMin="0.0" height="230" legend="true" xMax="100.0" yMin="-100.0" width="400" xAxis="Average work delegated to AI (%)" display="AI delegation versus skill change">
+      <setup></setup>
+      <update>plot-delegation-skill-change</update>
+      <pen interval="1.0" mode="0" display="No skill change" color="-7500403" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+      <pen interval="1.0" mode="2" display="Low" color="-2674135" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+      <pen interval="1.0" mode="2" display="Middle" color="-10899396" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+      <pen interval="1.0" mode="2" display="High" color="-13345367" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+    </plot>
     <plot x="420" autoPlotX="false" yMax="100.0" autoPlotY="false" yAxis="Current skill" y="440" xMin="0.0" height="230" legend="true" xMax="100.0" yMin="0.0" width="400" xAxis="Initial skill" display="Initial versus current skill">
       <setup></setup>
       <update>plot-individual-skill</update>
@@ -625,25 +659,47 @@ end
         <update></update>
       </pen>
     </plot>
-    <plot x="830" autoPlotX="true" yMax="100" autoPlotY="false" yAxis="Population mean quality score" y="680" xMin="0" height="230" legend="true" xMax="3000" yMin="0" width="400" xAxis="Ticks (difficulty = slider)" display="Current performance potential: with / without AI"><setup /><update>plot-performance-comparison</update><pen interval="1.0" mode="0" display="Without AI" color="-13345367" legend="true"><setup /><update /></pen><pen interval="1.0" mode="0" display="With current AI use" color="-10899396" legend="true"><setup /><update /></pen></plot>
+    <plot x="830" autoPlotX="true" yMax="100.0" autoPlotY="false" yAxis="Population mean quality score" y="680" xMin="0.0" height="230" legend="true" xMax="3000.0" yMin="0.0" width="400" xAxis="Ticks (difficulty = slider)" display="Current performance potential: with / without AI">
+      <setup></setup>
+      <update>plot-performance-comparison</update>
+      <pen interval="1.0" mode="0" display="Without AI" color="-13345367" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+      <pen interval="1.0" mode="0" display="With current AI use" color="-10899396" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+    </plot>
   </widgets>
   <info>## MODEL
-Model aligned with ratp_report_g10.tex. No external NetLogo model was copied.
+Human Skill Development Through Task-Specific AI Delegation, Group 10, NetLogo 7.0.4. Developed for this project; no existing NetLogo model was copied.
 
 ## USE
-Set n-humans (integer, at least 3), ai-capability (0--100), lambda-peer (0--1), then Setup and Go. Keep settings fixed within a run. Baselines are centralized in set-baseline-parameters. The world wraps in both directions; humans do not move. Blue shading shows latest completed delegation (initially tendency).
+Set ai-capability (0--100), lambda-peer (0--1), mu-skill (0--100), and mu-diff (0--100), then select Setup and Go. Keep these settings fixed within a run. Setup preserves the four slider values. Population size is fixed at 100; other baseline parameters are centralized in set-baseline-parameters. Saved baseline slider values are AI capability 70, peer influence 0.03, initial skill centre 50, and task difficulty centre 55. Distribution centres describe the underlying normal distributions before truncation to [0,100]. The world wraps in both directions; humans do not move. Blue shading shows latest completed delegation (initially tendency), with lighter shading indicating more delegation.
+
+## DELEGATION DECISION
+Under the baseline utility assumptions, the preferred target is full delegation when perceived AI capability exceeds perceived human skill, and no delegation otherwise, including ties. The chosen share blends that target with persistent delegation tendency using eta = 0.5. Task difficulty affects quality, duration, learning, and subsequent feedback, but does not independently change the preferred target. Intermediate delegation comes from this blending rule.
 
 ## TIMING AND OUTPUTS
-Setup has no active tasks. Each go progresses active tasks, processes all completions, calculates then commits social adjustments for completers, and assigns idle humans. New tasks start next step. Continuous duration drives progress; observed duration counts whole progress steps. mean-duration and mean-observed-duration are separate. Task-average reporters weight humans equally and exclude humans without completions; they return 0 if none have completed (a placeholder, not an observation). Fixed skill-group values 0/1/2 label initial tertiles and never affect behavior.
+Setup has no active tasks. Each go progresses active tasks, processes all completions, calculates then commits social adjustments for completers, and assigns idle humans. New tasks start next step. Continuous duration drives progress; observed duration counts whole progress steps. mean-duration and mean-observed-duration are separate. Task-average reporters weight humans equally and exclude humans without completions; they return 0 if none have completed (a placeholder, not an observation). Fixed skill-group values 0/1/2 label initial tertiles of 34/33/33 humans and never affect behavior.
 
 Each human stores task-records, one row per completion:
 [assignment-step completion-step difficulty delegation expected-quality actual-quality continuous-duration observed-duration learning erosion skill-before skill-after trust-after tendency-before-social].
-Benchmark reporters evaluate independent performance at 40, 55 and 70 without modifying agent state. Group benchmark changes preserve each difficulty separately.
+Benchmark reporters evaluate independent performance at difficulties 40, 55 and 70 without modifying agent state. Group benchmark changes preserve each difficulty separately. Recent-task reporters use completion steps in [ticks - 100, ticks), average within each eligible human first, and then average across eligible humans. They return false when no humans are eligible.
 
 ## EXPERIMENTS
-report-main: latest report design, A = 30/50/70/90, peer = 0.03, 30 repetitions, 100 humans, 3000 ticks (120 runs).
-planned-peer-crossing: requested alternative adding peer = 0/0.03 (240 runs).
-Both record final summaries only. Distinct deterministic seeds are assigned by BehaviorSpace run number. Neither full experiment has been run as part of this revision. The report experimental section still mentions random outcomes and error events removed by its conceptual section; report unchanged.
+All saved designs use 100 humans, 30 repetitions per condition, 3000 ticks, and peer influence 0 or 0.03. Experimental settings override saved slider values.
+
+skill-ai-surface: initial skill centres 20 through 80 and AI capabilities 20 through 90, both in increments of 10; task difficulty centre 55. There are 112 conditions and 3360 runs, with final measurements only. Seed = 10000 + BehaviorSpace run number.
+
+transition-trajectories: initial skill centre 50, AI capabilities 50/55/60/65/70, task difficulty centre 55. There are 10 conditions and 300 runs, with measurements every 10 ticks. Seed = 600000 + BehaviorSpace run number.
+
+broad-trajectories: initial skill centres 30/70, AI capabilities 30/70/90, task difficulty centre 55. There are 12 conditions and 360 runs, with measurements every 10 ticks. Seed = 500000 + BehaviorSpace run number.
+
+task-difficulty-40, task-difficulty-55, task-difficulty-70: initial skill centres 30/50/70 and AI capabilities 30/60/90, with task difficulty fixed at the value in the experiment name. Each has 18 conditions and 540 runs, with final measurements only; together they comprise 1620 runs. Seed offsets are 200000, 300000 and 400000 respectively, plus BehaviorSpace run number.
+
+These are saved configurations, not evidence that runs have completed. The report identifies the main surface experiment as completed and follow-up designs as planned; historical output provenance must be established separately. Individual task histories are retained in agents but are not exported by the saved summary metrics.
 </info>
   <turtleShapes>
     <shape name="default" rotatable="true" editableColorIndex="0">
@@ -1480,125 +1536,6 @@ Both record final summaries only. Distinct deterministic seeds are assigned by B
   </linkShapes>
   <previewCommands>setup repeat 75 [ go ]</previewCommands>
   <experiments>
-    <experiment name="report-main" repetitions="30" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
-      <setup>random-seed (10000 + behaviorspace-run-number) setup</setup>
-      <go>go</go>
-      <metrics>
-        <metric>mean-skill</metric>
-        <metric>mean-trust</metric>
-        <metric>mean-delegation</metric>
-        <metric>mean-quality</metric>
-        <metric>mean-duration</metric>
-        <metric>mean-observed-duration</metric>
-        <metric>mean-learning</metric>
-        <metric>mean-erosion</metric>
-        <metric>mean-tasks</metric>
-        <metric>group-mean-skill 0</metric>
-        <metric>group-skill-change 0</metric>
-        <metric>group-mean-deleg 0</metric>
-        <metric>group-bench-change 0</metric>
-        <metric>group-benchmark 0 40</metric>
-        <metric>group-benchmark-change 0 40</metric>
-        <metric>group-benchmark 0 55</metric>
-        <metric>group-benchmark-change 0 55</metric>
-        <metric>group-benchmark 0 70</metric>
-        <metric>group-benchmark-change 0 70</metric>
-        <metric>group-mean-skill 1</metric>
-        <metric>group-skill-change 1</metric>
-        <metric>group-mean-deleg 1</metric>
-        <metric>group-bench-change 1</metric>
-        <metric>group-benchmark 1 40</metric>
-        <metric>group-benchmark-change 1 40</metric>
-        <metric>group-benchmark 1 55</metric>
-        <metric>group-benchmark-change 1 55</metric>
-        <metric>group-benchmark 1 70</metric>
-        <metric>group-benchmark-change 1 70</metric>
-        <metric>group-mean-skill 2</metric>
-        <metric>group-skill-change 2</metric>
-        <metric>group-mean-deleg 2</metric>
-        <metric>group-bench-change 2</metric>
-        <metric>group-benchmark 2 40</metric>
-        <metric>group-benchmark-change 2 40</metric>
-        <metric>group-benchmark 2 55</metric>
-        <metric>group-benchmark-change 2 55</metric>
-        <metric>group-benchmark 2 70</metric>
-        <metric>group-benchmark-change 2 70</metric>
-      </metrics>
-      <constants>
-        <enumeratedValueSet variable="n-humans">
-          <value value="100"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="ai-capability">
-          <value value="30"></value>
-          <value value="50"></value>
-          <value value="70"></value>
-          <value value="90"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="lambda-peer">
-          <value value="0.03"></value>
-        </enumeratedValueSet>
-      </constants>
-    </experiment>
-    <experiment name="planned-peer-crossing" repetitions="30" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
-      <setup>random-seed (10000 + behaviorspace-run-number) setup</setup>
-      <go>go</go>
-      <metrics>
-        <metric>mean-skill</metric>
-        <metric>mean-trust</metric>
-        <metric>mean-delegation</metric>
-        <metric>mean-quality</metric>
-        <metric>mean-duration</metric>
-        <metric>mean-observed-duration</metric>
-        <metric>mean-learning</metric>
-        <metric>mean-erosion</metric>
-        <metric>mean-tasks</metric>
-        <metric>group-mean-skill 0</metric>
-        <metric>group-skill-change 0</metric>
-        <metric>group-mean-deleg 0</metric>
-        <metric>group-bench-change 0</metric>
-        <metric>group-benchmark 0 40</metric>
-        <metric>group-benchmark-change 0 40</metric>
-        <metric>group-benchmark 0 55</metric>
-        <metric>group-benchmark-change 0 55</metric>
-        <metric>group-benchmark 0 70</metric>
-        <metric>group-benchmark-change 0 70</metric>
-        <metric>group-mean-skill 1</metric>
-        <metric>group-skill-change 1</metric>
-        <metric>group-mean-deleg 1</metric>
-        <metric>group-bench-change 1</metric>
-        <metric>group-benchmark 1 40</metric>
-        <metric>group-benchmark-change 1 40</metric>
-        <metric>group-benchmark 1 55</metric>
-        <metric>group-benchmark-change 1 55</metric>
-        <metric>group-benchmark 1 70</metric>
-        <metric>group-benchmark-change 1 70</metric>
-        <metric>group-mean-skill 2</metric>
-        <metric>group-skill-change 2</metric>
-        <metric>group-mean-deleg 2</metric>
-        <metric>group-bench-change 2</metric>
-        <metric>group-benchmark 2 40</metric>
-        <metric>group-benchmark-change 2 40</metric>
-        <metric>group-benchmark 2 55</metric>
-        <metric>group-benchmark-change 2 55</metric>
-        <metric>group-benchmark 2 70</metric>
-        <metric>group-benchmark-change 2 70</metric>
-      </metrics>
-      <constants>
-        <enumeratedValueSet variable="n-humans">
-          <value value="100"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="ai-capability">
-          <value value="30"></value>
-          <value value="50"></value>
-          <value value="70"></value>
-          <value value="90"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="lambda-peer">
-          <value value="0"></value>
-          <value value="0.03"></value>
-        </enumeratedValueSet>
-      </constants>
-    </experiment>
     <experiment name="task-difficulty-40" repetitions="30" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
       <setup>random-seed (200000 + behaviorspace-run-number) setup set run-length 3000</setup>
       <go>go</go>
