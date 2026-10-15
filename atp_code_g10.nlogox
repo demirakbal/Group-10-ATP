@@ -1,567 +1,309 @@
 <?xml version="1.0" encoding="utf-8"?>
 <model version="NetLogo 7.0.4" snapToGrid="true">
-  <code><![CDATA[;; ATP Group 10 - simplified report-aligned revision, NetLogo 7.0.4.
-;; Original model preserved separately. No additional outcome or decision noise.
-;; Toroidal stationary population; four global phases; fixed analysis tertiles.
-;; Interface inputs survive setup and BehaviorSpace overrides. Other baselines
-;; are centralized below. Blue shading reflects latest completed delegation.
-;; Task records are available per human; their schema is documented in Info.
-
+  <code><![CDATA[;; Group 10: synchronous task rounds, matching Section 2 of the report.
+;; The four sliders are inputs; setup preserves their selected values.
 breed [humans human]
+;; Display-only turtles hold centred labels; model rules use humans only.
+breed [skill-labels skill-label]
 
 globals [
-  n-humans
-  ;; ai-capability, lambda-peer, mu-skill and mu-diff are interface inputs.
-  ;; n-humans is fixed at 100 during setup.
-  ;; population and initial conditions
-  sd-skill mu-trust sd-trust mean-deleg-init concentration
-  ;; task environment
-  sd-diff sd-perception-skill sd-perception-difficulty gamma-trust
-  ;; deterministic quality
-  quality-slope q-min
-  ;; duration and delegation decision
-  base-time duration-reg
-  w-quality w-time w-shortfall eta n-candidates
-  ;; trust updating
-  alpha-pos alpha-neg
-  ;; skill development
-  learn-rate challenge-width scaffold-kappa
-  erosion-rate erosion-curvature h-max
-  ;; experiment
-  run-length benchmark-difficulties
+  sd-skill sd-diff perception-skill-sd perception-diff-sd trust-sensitivity
+  adjustment-limit alpha-pos alpha-neg learn-rate challenge-width
+  scaffold-kappa erosion-rate run-length run-seed
 ]
 
 humans-own [
-  ;; state
-  skill trust deleg-tend
-  initial-skill skill-group          ;; group: 0 = low, 1 = medium, 2 = high
-  latest-deleg n-tasks next-tendency
-  ;; current task
-  has-task? task-diff progress a-chosen
-  exp-quality act-duration assignment-step observed-duration
-  ;; benchmark (independent performance, no AI)
-  bench-start
-  ;; bookkeeping for supporting measurements
-  sum-deleg sum-quality sum-duration sum-observed-duration sum-learn sum-erosion
-  task-records ;; completed task records; see Info tab for columns
+  skill initial-skill skill-group trust previous-delegation label-agent
+  task-diff chosen-delegation expected-quality actual-quality
+  next-skill next-trust learning erosion
+  n-tasks sum-deleg recent-delegations recent-net-gains
 ]
 
-;; ----------------------------------------------------------------------------
-;; PARAMETERS (Table 1 baseline). To vary a parameter in BehaviorSpace, make it
-;; an interface input and remove its initialization here.
-;; ----------------------------------------------------------------------------
+to setup
+  no-display
+  clear-all
+  set run-seed new-seed
+  random-seed run-seed
+  set-baseline-parameters
+  resize-world 0 9 0 9
+  ask patches [
+    sprout-humans 1 [
+      set shape "square"
+      set size 0.9
+      set skill random-trunc-normal mu-skill sd-skill
+      set initial-skill skill
+      set trust random-float 100
+      set previous-delegation 0.5
+      set recent-delegations []
+      set recent-net-gains []
+    ]
+  ]
+  ;; Rank once: equal skills are ordered by agent identifier.
+  let ranked sort-by [[a b] ->
+    ifelse-value ([initial-skill] of a = [initial-skill] of b)
+      [[who] of a < [who] of b]
+      [[initial-skill] of a < [initial-skill] of b]
+  ] humans
+  ask humans [set skill-group floor (3 * (position self ranked) / count humans)]
+  ;; Create overlays after all humans, preserving their identifiers and random draws.
+  with-local-randomness [
+    ask humans [
+      let owner self
+      hatch-skill-labels 1 [
+        set size 0
+        set label ""
+        ask owner [set label-agent myself]
+      ]
+      update-appearance
+    ]
+  ]
+  reset-ticks
+  display
+end
+
 to set-baseline-parameters
-  set n-humans 100
   set sd-skill 15
-  set mu-trust 50
-  set sd-trust 15
-  set mean-deleg-init 0.5
-  set concentration 10
-
   set sd-diff 15
-  set sd-perception-skill 1
-  set sd-perception-difficulty 5
-  set gamma-trust 0.30
-
-  set quality-slope 12
-  set q-min 50
-
-  set base-time 10
-  set duration-reg 20
-  set w-quality 1.0
-  set w-time 0.30
-  set w-shortfall 1.50
-  set eta 0.5
-  set n-candidates 101     ;; 0, 0.01, ..., 1; first maximum breaks ties
-
+  set perception-skill-sd 1
+  set perception-diff-sd 5
+  set trust-sensitivity 0.30
+  set adjustment-limit 1  ;; one percentage point per round on the integer decision grid
   set alpha-pos 0.10
   set alpha-neg 0.20
-
   set learn-rate 2
   set challenge-width 25
-  set scaffold-kappa 2
+  set scaffold-kappa 5
   set erosion-rate 1
-  set erosion-curvature 2
-  set h-max 100
-
-  set run-length 3000
-  set benchmark-difficulties [40 55 70]
+  set run-length 700
 end
 
-;; ----------------------------------------------------------------------------
-;; SETUP
-;; ----------------------------------------------------------------------------
-to setup
-  clear-all
-  set-baseline-parameters
-  if n-humans < 3 or n-humans != floor n-humans [
-    error "n-humans must be an integer of at least 3 for tertile analysis."
-  ]
-  if ai-capability < 0 or ai-capability > 100 [ error "AI capability must be in [0,100]." ]
-  if lambda-peer < 0 or lambda-peer > 1 [ error "Peer influence must be in [0,1]." ]
-  let side ceiling sqrt n-humans
-  resize-world 0 (side - 1) 0 (side - 1)
-  set-patch-size (400 / side)
-  ask n-of n-humans patches [
-    sprout-humans 1 [ init-human ]
-  ]
-  assign-skill-groups
-  update-visuals
-  reset-ticks
-end
-
-to init-human
-  set skill random-trunc-normal mu-skill sd-skill
-  set trust random-trunc-normal mu-trust sd-trust
-  set deleg-tend random-beta (mean-deleg-init * concentration) ((1 - mean-deleg-init) * concentration)
-  set initial-skill skill
-  set latest-deleg false ;; no completed observation; n-tasks gates social eligibility
-  set next-tendency deleg-tend
-  set task-records []
-  set n-tasks 0
-  set has-task? false
-  set task-diff 0
-  set progress 0
-  set a-chosen 0
-  set exp-quality 0
-  set assignment-step 0
-  set observed-duration 0
-  set act-duration 1
-  set sum-deleg 0
-  set sum-quality 0
-  set sum-duration 0
-  set sum-observed-duration 0
-  set sum-learn 0
-  set sum-erosion 0
-  set bench-start benchmark-scores
-  set shape "square"
-  set size 0.9
-end
-
-;; tertiles of the realised initial skill distribution; used for analysis only
-to assign-skill-groups
-  ;; Stable identifier breaks equal-skill ties, as specified in the report.
-  let sorted sort-by [[a b] -> ifelse-value ([skill] of a = [skill] of b)
-    [[who] of a < [who] of b] [[skill] of a < [skill] of b]] humans
-  (foreach sorted (range n-humans) [ [h i] ->
-    ask h [ set skill-group floor (3 * i / n-humans) ]
-  ])
-end
-
-;; ----------------------------------------------------------------------------
-;; MAIN LOOP  (Algorithm 1; humans work asynchronously)
-;; ----------------------------------------------------------------------------
 to go
-  if ticks >= run-length [ stop ]
-  ;; Four global phases: no newly assigned task progresses in this step.
-  ask humans with [has-task?] [ progress-task ]
-  let completers humans with [has-task? and progress >= 1]
-  ask completers [ complete-task ]
-  ask completers [ calculate-social-influence ]
-  ask completers [ set deleg-tend next-tendency ]
-  ask humans with [not has-task?] [ start-task ]
-  update-visuals
+  if ticks >= run-length [stop]
+  ;; No human sees another human's new state until all outcomes are calculated.
+  ask humans [choose-delegation]
+  ask humans [calculate-outcome]
+  ask humans [commit-outcome]
   tick
 end
 
-;; ----------------------------------------------------------------------------
-;; TASK GENERATION, PERCEPTION AND DELEGATION DECISION
-;; ----------------------------------------------------------------------------
-to start-task
+to choose-delegation
   set task-diff random-trunc-normal mu-diff sd-diff
+  let perceived-skill clip (skill + random-normal 0 perception-skill-sd) 0 100
+  let perceived-diff clip (task-diff + random-normal 0 perception-diff-sd) 0 100
+  let perceived-ai clip (ai-capability + trust-sensitivity * (trust - 50)) 0 100
+  let human-quality quality-curve perceived-skill perceived-diff
+  let ai-quality quality-curve perceived-ai perceived-diff
+  let previous-percent round (100 * previous-delegation)
+  let lower-percent max (list 0 (previous-percent - adjustment-limit))
+  let upper-percent min (list 100 (previous-percent + adjustment-limit))
 
-  ;; temporary perceptions
-  let h-hat clip (skill + random-normal 0 sd-perception-skill) 0 100
-  let d-hat clip (task-diff + random-normal 0 sd-perception-difficulty) 0 100
-  let a-hat clip (ai-capability + gamma-trust * (trust - 50)) 0 100
-
-  ;; evaluate candidate delegation values
-  let candidates n-values n-candidates [ i -> i / (n-candidates - 1) ]
-  let utils map [ cand -> utility cand h-hat d-hat a-hat ] candidates
-  let best-a item (position (max utils) utils) candidates
-
-  ;; Blend the deterministic lowest-maximising target with persistent tendency.
-  set a-chosen clip (deleg-tend + eta * (best-a - deleg-tend)) 0 1
-  set exp-quality expected-quality a-chosen h-hat a-hat d-hat
-  ;; actual duration uses true values and is fixed for the task
-  set act-duration task-duration a-chosen skill ai-capability task-diff
-
-  set assignment-step ticks
-  set progress 0                ;; progress starts accumulating next tick
-  set has-task? true
-end
-
-;; logistic competence curve
-to-report quality-curve [cap diff]
-  report 100 / (1 + exp ((diff - cap) / quality-slope))
-end
-
-;; expected quality for delegation a
-to-report expected-quality [a h-cap a-cap diff]
-  ;; Algebraically identical weighted average; preserves exact ties when capabilities match.
-  let qh quality-curve h-cap diff
-  report qh + a * ((quality-curve a-cap diff) - qh)
-end
-
-;; continuous task duration (used for perceived and actual values by passing in
-;; perceived or true capabilities and difficulty)
-to-report task-duration [a h-cap a-cap diff]
-  let cap h-cap + a * (a-cap - h-cap)
-  let ratio (diff + duration-reg) / (cap + duration-reg)
-  report max (list 1 (base-time * ratio))
-end
-
-;; utility of a candidate delegation value
-to-report utility [a h-hat d-hat a-hat]
-  let q expected-quality a h-hat a-hat d-hat
-  let tau0 task-duration 0 h-hat a-hat d-hat
-  let tau  task-duration a h-hat a-hat d-hat
-  let gain clip ((tau0 - tau) / tau0) -1 1
-  let shortfall (max (list 0 (q-min - q))) / 100
-  report (w-quality * q / 100) + (w-time * gain) - (w-shortfall * shortfall)
-end
-
-;; ----------------------------------------------------------------------------
-;; TASK PROGRESS AND COMPLETION
-;; ----------------------------------------------------------------------------
-to progress-task
-  ;; Equivalent to adding 1 / duration per step, without accumulated rounding drift.
-  set progress (ticks - assignment-step) / act-duration
-
-end
-
-to complete-task
-  let a a-chosen
-
-  ;; Deterministic quality uses skill before the completion update.
-  let qh quality-curve skill task-diff
-  let qa quality-curve ai-capability task-diff
-  let q-actual (1 - a) * qh + a * qa
-  set observed-duration ticks - assignment-step
-  ;; Quality-only trust update; available room depends on direction.
-  if a > 0 [
-    let evidence (q-actual - exp-quality) / 100
-    ifelse evidence >= 0
-      [ set trust trust + a * alpha-pos * evidence * (100 - trust) ]
-      [ set trust trust + a * alpha-neg * evidence * trust ]
+  ;; Expected quality is linear in delegation: its maximum is an endpoint,
+  ;; or the previous choice when both contributors have equal expected quality.
+  let personal-percent previous-percent
+  if ai-quality > human-quality [set personal-percent upper-percent]
+  if ai-quality < human-quality [set personal-percent lower-percent]
+  let mixed-percent personal-percent
+  if ticks > 0 [
+    let peer-percent 100 * mean [previous-delegation] of (humans-on neighbors)
+    set mixed-percent (1 - lambda-peer) * personal-percent + lambda-peer * peer-percent
   ]
 
-  ;; --- learning gain ---
-  let c exp (-0.5 * ((task-diff - skill) / challenge-width) ^ 2)
-  let p-indep 1 - a
-  let s-scaf scaffold-kappa * a * (1 - a) * qa / 100
-  let learn learn-rate * ((h-max - skill) / h-max) * c * (p-indep + s-scaf)
+  ;; Select the closest feasible grid point. Break ties by distance to previous
+  ;; usage, then the lower fraction. Precision removes floating-point tie noise.
+  let feasible n-values (upper-percent - lower-percent + 1) [i -> lower-percent + i]
+  let nearest-distance min map [a -> precision (abs (a - mixed-percent)) 10] feasible
+  let closest filter [a -> precision (abs (a - mixed-percent)) 10 = nearest-distance] feasible
+  let previous-distance min map [a -> abs (a - previous-percent)] closest
+  set chosen-delegation (min filter [a -> abs (a - previous-percent) = previous-distance] closest) / 100
+  set expected-quality (1 - chosen-delegation) * human-quality + chosen-delegation * ai-quality
+end
 
-  ;; Erosion uses only this completed task, with pre-update skill.
-  let erosion erosion-rate * (skill / h-max) * (a ^ erosion-curvature)
-  let skill-before skill
-  set latest-deleg a
+to calculate-outcome
+  let a chosen-delegation
+  let human-quality quality-curve skill task-diff
+  let ai-quality quality-curve ai-capability task-diff
+  set actual-quality (1 - a) * human-quality + a * ai-quality
+  let surprise (actual-quality - expected-quality) / 100
+  set next-trust trust
+  ifelse surprise >= 0
+    [set next-trust trust + a * alpha-pos * surprise * (100 - trust)]
+    [set next-trust trust + a * alpha-neg * surprise * trust]
+
+  let suitability exp (-0.5 * ((task-diff - skill) / challenge-width) ^ 2)
+  let practice 1 - a
+  let scaffolding scaffold-kappa * a * (1 - a) * ai-quality / 100
+  set learning learn-rate * (100 - skill) / 100 * suitability * (practice + scaffolding)
+  set erosion erosion-rate * skill / 100 * max (list 0 (2 * a - 1))
+  set next-skill clip (skill + learning - erosion) 0 100
+end
+
+to commit-outcome
+  set skill next-skill
+  set trust next-trust
+  set previous-delegation chosen-delegation
   set n-tasks n-tasks + 1
-
-  set skill clip (skill + learn - erosion) 0 h-max
-
-  ;; --- bookkeeping ---
-  set sum-deleg sum-deleg + a
-  set sum-quality sum-quality + q-actual
-  set sum-duration sum-duration + act-duration
-  set sum-observed-duration sum-observed-duration + observed-duration
-  set task-records lput (list assignment-step ticks task-diff a exp-quality q-actual act-duration observed-duration learn erosion skill-before skill trust deleg-tend) task-records
-  set sum-learn sum-learn + learn
-  set sum-erosion sum-erosion + erosion
-
-  set has-task? false
-  set progress 0
+  set sum-deleg sum-deleg + chosen-delegation
+  ;; Only the latest 100 rounds are needed for the existing recent-value plots.
+  set recent-delegations fput chosen-delegation recent-delegations
+  set recent-net-gains fput (learning - erosion) recent-net-gains
+  if length recent-delegations > 100 [
+    set recent-delegations but-last recent-delegations
+    set recent-net-gains but-last recent-net-gains
+  ]
+  update-appearance
 end
 
-;; weak imitation of the eight surrounding locations
-to calculate-social-influence
-  set next-tendency deleg-tend
-  let peers (humans-on neighbors) with [n-tasks > 0]
-  if any? peers [
-    let a-peer mean [latest-deleg] of peers
-    set next-tendency clip (deleg-tend + lambda-peer * (a-peer - deleg-tend)) 0 1
+
+;; Explicit RGB interpolation: dark navy at 0%, blue at 50%, white at 100%.
+;; This avoids NetLogo colour-number wrapping and keeps low-use squares visible.
+to update-appearance
+  let a previous-delegation
+  ifelse a <= 0.5
+    [set color (list (12 + 56 * a) (20 + 160 * a) (38 + 344 * a))]
+    [set color (list (40 + 430 * (a - 0.5))
+                    (100 + 310 * (a - 0.5))
+                    (210 + 90 * (a - 0.5)))]
+  let change-tenths round ((skill - initial-skill) * 10)
+  let magnitude abs change-tenths
+  let sign-text ifelse-value (change-tenths < 0) ["-"] ["+"]
+  let caption (word sign-text (floor (magnitude / 10)) "." (magnitude mod 10))
+  ;; NetLogo right-aligns labels. Offset the zero-size overlay by half the
+  ;; text width and height, using the view's 10-point font and patch size.
+  let text-width 6 * length caption - 1
+  if change-tenths < 0 [set text-width text-width - 4]
+  let centre-x xcor
+  let centre-y ycor
+  ask label-agent [
+    set label caption
+    set label-color ifelse-value (a > 0.65) [black] [white]
+    setxy (centre-x + text-width / (2 * patch-size)) (centre-y - 6.5 / patch-size)
   ]
 end
 
-;; ----------------------------------------------------------------------------
-;; BENCHMARK: independent (no-AI) expected performance at fixed difficulties.
-;; Deterministic and does not touch skill, trust or delegation.
-;; ----------------------------------------------------------------------------
-to-report benchmark-scores
-  report map [ d -> quality-curve skill d ] benchmark-difficulties
+to-report clip [value lower-bound upper-bound]
+  report min (list upper-bound (max (list lower-bound value)))
 end
 
-;; ----------------------------------------------------------------------------
-;; HELPERS
-;; ----------------------------------------------------------------------------
-to-report clip [x lo hi]
-  report max (list lo (min (list hi x)))
+to-report random-trunc-normal [centre spread]
+  let value random-normal centre spread
+  if value < 0 or value > 100 [report random-trunc-normal centre spread]
+  report value
 end
 
-;; truncated normal on [0,100] by redrawing
-to-report random-trunc-normal [mu sd]
-  let x random-normal mu sd
-  while [x < 0 or x > 100] [ set x random-normal mu sd ]
-  report x
+to-report quality-curve [capability difficulty]
+  report clip (50 + capability - difficulty) 0 100
 end
 
-;; Beta(a,b) via two gamma draws
-to-report random-beta [a b]
-  if a = 0 [ report 0 ]
-  if b = 0 [ report 1 ]
-  let x random-gamma a 1
-  let y random-gamma b 1
-  report x / (x + y)
-end
-
-to update-visuals
-  ask humans [
-    let d ifelse-value (n-tasks > 0) [latest-deleg] [deleg-tend]
-    set color scale-color blue d -0.2 1.2     ;; lighter = more AI delegation
-  ]
-end
-
-;; ----------------------------------------------------------------------------
-;; REPORTERS (monitors, plots, BehaviorSpace)
-;; ----------------------------------------------------------------------------
+;; Summaries weight humans equally. Cumulative delegation is a fraction, not %.
 to-report mean-skill
   report mean [skill] of humans
-end
-
-to-report mean-trust
-  report mean [trust] of humans
-end
-
-;; mean over humans of their average delegation across all completed tasks
-to-report mean-delegation
-  let hs humans with [n-tasks > 0]
-  if not any? hs [ report 0 ]
-  report mean [sum-deleg / n-tasks] of hs
-end
-
-to-report group-mean-deleg [g]
-  let hs humans with [skill-group = g and n-tasks > 0]
-  if not any? hs [ report 0 ]
-  report mean [sum-deleg / n-tasks] of hs
-end
-
-to-report group-skill-change [g]
-  report mean [skill - initial-skill] of humans with [skill-group = g]
-end
-
-;; change in mean independent benchmark performance (end minus start)
-to-report group-bench-change [g]
-  report mean [(mean benchmark-scores) - (mean bench-start)] of humans with [skill-group = g]
 end
 
 to-report mean-tasks
   report mean [n-tasks] of humans
 end
 
-to-report mean-quality
-  let hs humans with [n-tasks > 0]
-  if not any? hs [ report 0 ]
-  report mean [sum-quality / n-tasks] of hs
+to-report mean-delegation
+  if not any? humans with [n-tasks > 0] [report 0]
+  report mean [sum-deleg / n-tasks] of humans with [n-tasks > 0]
 end
 
-to-report mean-duration
-  let hs humans with [n-tasks > 0]
-  if not any? hs [ report 0 ]
-  report mean [sum-duration / n-tasks] of hs
+to-report group-mean-skill [group-id]
+  report mean [skill] of humans with [skill-group = group-id]
 end
 
-to-report mean-learning
-  let hs humans with [n-tasks > 0]
-  if not any? hs [ report 0 ]
-  report mean [sum-learn / n-tasks] of hs
+to-report group-skill-change [group-id]
+  report mean [skill - initial-skill] of humans with [skill-group = group-id]
 end
 
-to-report mean-erosion
-  let hs humans with [n-tasks > 0]
-  if not any? hs [ report 0 ]
-  report mean [sum-erosion / n-tasks] of hs
+to-report group-mean-deleg [group-id]
+  let members humans with [skill-group = group-id and n-tasks > 0]
+  if not any? members [report 0]
+  report mean [sum-deleg / n-tasks] of members
 end
 
-;; Mean of each human's completed-task observed duration (whole steps).
-to-report mean-observed-duration
-  let hs humans with [n-tasks > 0]
-  if not any? hs [ report 0 ]
-  report mean [sum-observed-duration / n-tasks] of hs
+to-report percent-skill-loss [members threshold]
+  if not any? members [report 0]
+  report 100 * count members with [initial-skill - skill > threshold] / count members
 end
 
-;; Group states and per-difficulty independent assessments, analysis only.
-to-report group-mean-skill [g]
-  report mean [skill] of humans with [skill-group = g]
-end
-
-to-report group-benchmark [g difficulty]
-  report mean [quality-curve skill difficulty] of humans with [skill-group = g]
-end
-
-to-report group-benchmark-change [g difficulty]
-  let k position difficulty benchmark-difficulties
-  report mean [(quality-curve skill difficulty) - item k bench-start] of humans with [skill-group = g]
-end
-
-;; Shared measurements. These reporters never mutate human state.
-;; Record indices follow the completed-task schema documented in Info.
-to-report record-completion-step [record]
-  report item 1 record
-end
-
-to-report record-delegation [record]
-  report item 3 record
-end
-
-to-report record-learning [record]
-  report item 8 record
-end
-
-to-report record-erosion [record]
-  report item 9 record
-end
-
-;; Human context; the window is [ticks - 100, ticks).
-to-report recent-task-records
-  report filter [record ->
-    record-completion-step record >= ticks - 100 and
-    record-completion-step record < ticks
-  ] task-records
-end
-
-;; Keep both original agentset traversals, including their random-number use.
-;; Average within each eligible human first, then across eligible humans.
-to-report recent-task-mean [hs measure]
-  let eligible filter [records -> not empty? records] ([recent-task-records] of hs)
-  if empty? eligible [ report false ]
-  let observations filter [records -> not empty? records] ([recent-task-records] of hs)
-  report mean map [records -> mean map measure records] observations
-end
-
-to-report recent-delegation [hs]
-  report recent-task-mean hs [record -> record-delegation record]
-end
-
-to-report recent-learning [hs]
-  report recent-task-mean hs [record -> record-learning record]
-end
-
-to-report recent-erosion [hs]
-  report recent-task-mean hs [record -> record-erosion record]
-end
-
-to-report skill-sd [hs]
-  if count hs <= 1 [ report 0 ]
-  report standard-deviation [skill] of hs
-end
-
-to-report delegation-sd [hs]
-  let eligible hs with [n-tasks > 0]
-  if count eligible <= 1 [ report false ]
-  report standard-deviation [sum-deleg / n-tasks] of eligible
-end
-
-to-report percent-skill-loss [hs threshold]
-  if not any? hs [ report 0 ]
-  report 100 * count hs with [skill < initial-skill - threshold] / count hs
-end
-
-;; Snapshot plots use isolated randomness so drawing does not consume model draws.
-to plot-individual-skill
-  if ticks mod 10 != 0 [ stop ]
-  with-local-randomness [
-    clear-plot
-    set-current-plot-pen "No change"
-    plotxy 0 0
-    plotxy 100 100
-    foreach (sort humans) [person ->
-      let group [skill-group] of person
-      set-current-plot-pen item group ["Low" "Middle" "High"]
-      plotxy [initial-skill] of person [skill] of person
-    ]
-  ]
-end
-
-;; Each point is one human; completed-task delegation is averaged per human.
-;; This graph shows association, not a causal estimate of delegation's effect.
-to plot-delegation-skill-change
-  if ticks mod 10 != 0 [ stop ]
-  with-local-randomness [
-    clear-plot
-    set-current-plot-pen "No skill change"
-    plotxy 0 0
-    plotxy 100 0
-    foreach (sort humans) [person ->
-      if [n-tasks] of person > 0 [
-        set-current-plot-pen item ([skill-group] of person) ["Low" "Middle" "High"]
-        plotxy ([100 * sum-deleg / n-tasks] of person) ([skill - initial-skill] of person)
-      ]
-    ]
-  ]
-end
-
-to-report recent-net-learning
-  let learning recent-learning humans
-  let erosion recent-erosion humans
-  if not is-number? learning or not is-number? erosion [ report false ]
-  report learning - erosion
-end
-
-to-report mean-benchmark-change [difficulty]
-  let index position difficulty benchmark-difficulties
-  report mean [(quality-curve skill difficulty) - item index bench-start] of humans
+to-report recent-delegation [members]
+  let completed members with [n-tasks > 0]
+  if not any? completed [report false]
+  report mean [mean recent-delegations] of completed
 end
 
 to-report recent-delegation-percent
-  let value-now recent-delegation humans
-  if not is-number? value-now [ report false ]
-  report 100 * value-now
+  let value recent-delegation humans
+  if value = false [report false]
+  report 100 * value
 end
 
-;; One dot per human with completed tasks; cumulative delegation, not recent use.
-to plot-initial-skill-delegation
-  if ticks mod 10 != 0 [ stop ]
+to-report recent-net-learning
+  if not any? humans with [n-tasks > 0] [report false]
+  report mean [mean recent-net-gains] of humans with [n-tasks > 0]
+end
+
+;; Display routines use local randomness so plotting cannot affect the model.
+to plot-individual-skill
+  if ticks mod 10 != 0 [stop]
+  clear-plot
+  set-current-plot-pen "No change"
+  plotxy 0 0
+  plotxy 100 100
   with-local-randomness [
-    clear-plot
-    foreach (sort humans) [person ->
-      if [n-tasks] of person > 0 [
-        set-current-plot-pen item ([skill-group] of person) ["Low" "Middle" "High"]
-        plotxy ([initial-skill] of person) ([100 * sum-deleg / n-tasks] of person)
-      ]
+    ask humans [
+      set-current-plot-pen item skill-group ["Low" "Middle" "High"]
+      plotxy initial-skill skill
     ]
   ]
 end
 
-;; Matched current performance potential on the slider difficulty.
-;; Both alternatives use the same humans, current skills and task difficulty.
-;; Current task choices determine assisted shares; no states are updated.
-to plot-performance-comparison
-  if ticks mod 10 != 0 [ stop ]
-  let unaided-scores []
-  let assisted-scores []
-  foreach (sort humans) [person ->
-    if [has-task?] of person [
-      let human-quality quality-curve ([skill] of person) mu-diff
-      let ai-quality quality-curve ai-capability mu-diff
-      let delegation [a-chosen] of person
-      set unaided-scores lput human-quality unaided-scores
-      set assisted-scores lput ((1 - delegation) * human-quality + delegation * ai-quality) assisted-scores
+to plot-initial-skill-delegation
+  if ticks mod 10 != 0 [stop]
+  clear-plot
+  with-local-randomness [
+    ask humans with [n-tasks > 0] [
+      set-current-plot-pen item skill-group ["Low" "Middle" "High"]
+      plotxy initial-skill (100 * sum-deleg / n-tasks)
     ]
   ]
-  if empty? unaided-scores [ stop ]
-  set-current-plot-pen "Without AI"
-  plotxy ticks mean unaided-scores
-  set-current-plot-pen "With current AI use"
-  plotxy ticks mean assisted-scores
+end
+
+to plot-delegation-skill-change
+  if ticks mod 10 != 0 [stop]
+  clear-plot
+  set-current-plot-pen "No skill change"
+  plotxy 0 0
+  plotxy 100 0
+  with-local-randomness [
+    ask humans with [n-tasks > 0] [
+      set-current-plot-pen item skill-group ["Low" "Middle" "High"]
+      plotxy (100 * sum-deleg / n-tasks) (skill - initial-skill)
+    ]
+  ]
+end
+
+to plot-performance-comparison
+  if ticks mod 10 != 0 [stop]
+  with-local-randomness [
+    let human-quality mean [quality-curve skill mu-diff] of humans
+    let ai-quality quality-curve ai-capability mu-diff
+    set-current-plot-pen "0% AI"
+    plotxy ticks human-quality
+    set-current-plot-pen "50% AI"
+    plotxy ticks (0.5 * human-quality + 0.5 * ai-quality)
+    set-current-plot-pen "100% AI"
+    plotxy ticks ai-quality
+  ]
 end
 ]]></code>
   <widgets>
-    <view x="350" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="0" height="404" showTickCounter="true" patchSize="40.0" fontSize="10" wrappingAllowedY="true" width="404" tickCounterLabel="ticks" maxPycor="9" updateMode="0" maxPxcor="9" minPxcor="0"></view>
+    <view x="350" wrappingAllowedX="true" y="10" frameRate="30.0" minPycor="0" height="404" showTickCounter="true" patchSize="40.0" fontSize="10" wrappingAllowedY="true" width="404" tickCounterLabel="rounds" maxPycor="9" updateMode="0" maxPxcor="9" minPxcor="0"></view>
     <button x="125" y="235" height="35" disableUntilTicks="false" forever="false" kind="Observer" width="55" display="Setup">setup</button>
     <button x="195" y="235" height="35" disableUntilTicks="false" forever="true" kind="Observer" width="55" display="Go">go</button>
     <monitor x="780" precision="3" y="10" height="65" fontSize="11" width="220" display="Mean skill">mean-skill</monitor>
-    <monitor x="1010" precision="3" y="250" height="65" fontSize="11" width="220" display="Mean completed tasks per human">mean-tasks</monitor>
-    <plot x="10" autoPlotX="true" yMax="100.0" autoPlotY="false" yAxis="Skill" y="440" xMin="0.0" height="230" legend="true" xMax="3000.0" yMin="0.0" width="400" xAxis="Ticks" display="Skill by initial tertile">
+    <plot x="10" autoPlotX="true" yMax="100.0" autoPlotY="false" yAxis="Skill" y="440" xMin="0.0" height="230" legend="true" xMax="700.0" yMin="0.0" width="400" xAxis="Rounds" display="Skill by initial tertile">
       <setup></setup>
       <update></update>
       <pen interval="1.0" mode="0" display="Low" color="-2674135" legend="true">
@@ -578,7 +320,7 @@ end
       </pen>
     </plot>
     <slider x="10" step="1" y="10" max="100" width="330" display="ai-capability" height="50" min="0" direction="Horizontal" default="70.0" variable="ai-capability"></slider>
-    <slider x="10" step="0.01" y="65" max="1" width="330" display="lambda-peer" height="50" min="0" direction="Horizontal" default="0.03" variable="lambda-peer"></slider>
+    <slider x="10" step="0.01" y="65" max="1" width="330" display="lambda-peer" height="50" min="0" direction="Horizontal" default="0.04" variable="lambda-peer"></slider>
     <slider x="10" step="1" y="120" max="100" width="330" display="mu-skill" height="50" min="0" direction="Horizontal" default="50.0" variable="mu-skill"></slider>
     <slider x="10" step="1" y="175" max="100" width="330" display="mu-diff" height="50" min="0" direction="Horizontal" default="55.0" variable="mu-diff"></slider>
     <monitor x="780" precision="2" y="90" height="65" fontSize="11" width="220" display="Any skill loss (%)">percent-skill-loss humans 0</monitor>
@@ -587,6 +329,9 @@ end
     <monitor x="780" precision="2" y="170" height="65" fontSize="11" width="220" display="Recent delegation (%)">recent-delegation-percent</monitor>
     <monitor x="1010" precision="2" y="170" height="65" fontSize="11" width="220" display="Recent learning minus erosion / task">recent-net-learning</monitor>
     <monitor x="780" precision="2" y="250" height="65" fontSize="11" width="220" display="Unaided score change (difficulty slider)">mean [(quality-curve skill mu-diff) - (quality-curve initial-skill mu-diff)] of humans</monitor>
+    <monitor x="780" precision="3" y="330" height="65" fontSize="11" width="145" display="Mean skill: low group">group-mean-skill 0</monitor>
+    <monitor x="935" precision="3" y="330" height="65" fontSize="11" width="145" display="Mean skill: mid group">group-mean-skill 1</monitor>
+    <monitor x="1090" precision="3" y="330" height="65" fontSize="11" width="145" display="Mean skill: high group">group-mean-skill 2</monitor>
     <plot x="10" autoPlotX="false" yMax="100.0" autoPlotY="false" yAxis="Average work delegated to AI (%)" y="680" xMin="0.0" height="230" legend="true" xMax="100.0" yMin="0.0" width="400" xAxis="Initial human skill" display="Initial skill versus AI delegation">
       <setup></setup>
       <update>plot-initial-skill-delegation</update>
@@ -603,7 +348,7 @@ end
         <update></update>
       </pen>
     </plot>
-    <plot x="830" autoPlotX="true" yMax="1.0" autoPlotY="false" yAxis="Delegated share" y="440" xMin="0.0" height="230" legend="true" xMax="3000.0" yMin="0.0" width="400" xAxis="Ticks" display="Recent delegation by tertile (100 ticks)">
+    <plot x="830" autoPlotX="true" yMax="1.0" autoPlotY="false" yAxis="Delegated share" y="440" xMin="0.0" height="230" legend="true" xMax="700.0" yMin="0.0" width="400" xAxis="Rounds" display="Recent delegation by tertile (100 rounds)">
       <setup></setup>
       <update></update>
       <pen interval="1.0" mode="0" display="Low" color="-2674135" legend="true">
@@ -659,47 +404,40 @@ end
         <update></update>
       </pen>
     </plot>
-    <plot x="830" autoPlotX="true" yMax="100.0" autoPlotY="false" yAxis="Population mean quality score" y="680" xMin="0.0" height="230" legend="true" xMax="3000.0" yMin="0.0" width="400" xAxis="Ticks (difficulty = slider)" display="Current performance potential: with / without AI">
+    <plot x="830" autoPlotX="true" yMax="100.0" autoPlotY="false" yAxis="Population mean quality score" y="680" xMin="0.0" height="230" legend="true" xMax="700.0" yMin="0.0" width="400" xAxis="Rounds (difficulty = slider)" display="Quality at 0%, 50%, and 100% AI delegation">
       <setup></setup>
       <update>plot-performance-comparison</update>
-      <pen interval="1.0" mode="0" display="Without AI" color="-13345367" legend="true">
+      <pen interval="1.0" mode="0" display="0% AI" color="-13345367" legend="true">
         <setup></setup>
         <update></update>
       </pen>
-      <pen interval="1.0" mode="0" display="With current AI use" color="-10899396" legend="true">
+      <pen interval="1.0" mode="0" display="50% AI" color="-10899396" legend="true">
+        <setup></setup>
+        <update></update>
+      </pen>
+      <pen interval="1.0" mode="0" display="100% AI" color="-2674135" legend="true">
         <setup></setup>
         <update></update>
       </pen>
     </plot>
   </widgets>
   <info>## MODEL
-Human Skill Development Through Task-Specific AI Delegation, Group 10, NetLogo 7.0.4. Developed for this project; no existing NetLogo model was copied.
+Human Skill Development Through Task-Specific AI Delegation, Group 10, NetLogo 7.0.4. Developed for this project. The rules implement Section 2 of the report.
 
 ## USE
-Set ai-capability (0--100), lambda-peer (0--1), mu-skill (0--100), and mu-diff (0--100), then select Setup and Go. Keep these settings fixed within a run. Setup preserves the four slider values. Population size is fixed at 100; other baseline parameters are centralized in set-baseline-parameters. Saved baseline slider values are AI capability 70, peer influence 0.03, initial skill centre 50, and task difficulty centre 55. Distribution centres describe the underlying normal distributions before truncation to [0,100]. The world wraps in both directions; humans do not move. Blue shading shows latest completed delegation (initially tendency), with lighter shading indicating more delegation.
+Select Setup, then Go. The four sliders retain their selected values during setup; keep them fixed within a run. Saved baselines are AI capability 70, peer weight 0.04, initial skill centre 50, and task difficulty centre 55. Other parameters are in set-baseline-parameters. One hundred stationary humans occupy a 10 by 10 toroidal grid with eight neighbours each. Blue shading uses a gradual RGB gradient: 0% is visible dark navy, 50% is medium blue, and 100% is white. Everyone starts at 50%. Centred display-only labels show total skill change since setup, with a sign and one decimal place; they update after every round. Label positioning is sized for the saved 10-point view font.
 
-## DELEGATION DECISION
-Under the baseline utility assumptions, the preferred target is full delegation when perceived AI capability exceeds perceived human skill, and no delegation otherwise, including ties. The chosen share blends that target with persistent delegation tendency using eta = 0.5. Task difficulty affects quality, duration, learning, and subsequent feedback, but does not independently change the preferred target. Intermediate delegation comes from this blending rule.
+## TASK ROUNDS
+Each round gives every human one completed task. Humans first choose delegation using beginning-of-round values, then calculate outcomes, then commit all updates. Task quality is bounded linear capability minus difficulty plus 50. Personal choices maximise expected quality within one percentage point of previous usage. Neighbours receive 4% weight at baseline, except in the first round. Final choices use one-percentage-point steps and retain the adjustment limit. Trust responds to the difference between actual and expected combined quality. Skill changes through independent practice, AI scaffolding, and linear erosion above 50% delegation.
 
-## TIMING AND OUTPUTS
-Setup has no active tasks. Each go progresses active tasks, processes all completions, calculates then commits social adjustments for completers, and assigns idle humans. New tasks start next step. Continuous duration drives progress; observed duration counts whole progress steps. mean-duration and mean-observed-duration are separate. Task-average reporters weight humans equally and exclude humans without completions; they return 0 if none have completed (a placeholder, not an observation). Fixed skill-group values 0/1/2 label initial tertiles of 34/33/33 humans and never affect behavior.
+## DISPLAYS
+Low, middle, and high groups contain 34, 33, and 33 humans ranked by starting skill, with agent identifier breaking ties. Membership never changes. Cumulative delegation averages completed tasks; recent values average the latest 100 rounds (or all completed rounds when fewer than 100 are available). Recent monitors return false before any task has completed. Skill change compares current and starting skill. The performance plot compares hypothetical quality at 0%, 50%, and 100% AI delegation using current human skill, shared AI capability, and the difficulty slider value. These comparisons do not change actual delegation or skill and are not separate simulated learning trajectories. Scatter plots and recent/performance plots refresh every ten rounds.
 
-Each human stores task-records, one row per completion:
-[assignment-step completion-step difficulty delegation expected-quality actual-quality continuous-duration observed-duration learning erosion skill-before skill-after trust-after tendency-before-social].
-Benchmark reporters evaluate independent performance at difficulties 40, 55 and 70 without modifying agent state. Group benchmark changes preserve each difficulty separately. Recent-task reporters use completion steps in [ticks - 100, ticks), average within each eligible human first, and then average across eligible humans. They return false when no humans are eligible.
+## MAIN EXPERIMENT
+The main-experiment crosses initial skill centres and AI capabilities from 0 to 100 in steps of 10, and peer weights 0 and 0.04. Difficulty centre is 55. There are 242 conditions, 20 repetitions per condition, and 4840 runs. Each setup selects a new random seed, stores it as run-seed, and both experiments include run-seed in their measurements. Runs last 700 rounds and record endpoint skill change and cumulative delegation for the population and each fixed initial-skill group. Delegation metrics are fractions between 0 and 1. This configuration does not establish that the experiment has been run or that convergence has been demonstrated.
 
-## EXPERIMENTS
-All saved designs use 100 humans, 30 repetitions per condition, 3000 ticks, and peer influence 0 or 0.03. Experimental settings override saved slider values.
-
-skill-ai-surface: initial skill centres 20 through 80 and AI capabilities 20 through 90, both in increments of 10; task difficulty centre 55. There are 112 conditions and 3360 runs, with final measurements only. Seed = 10000 + BehaviorSpace run number.
-
-transition-trajectories: initial skill centre 50, AI capabilities 50/55/60/65/70, task difficulty centre 55. There are 10 conditions and 300 runs, with measurements every 10 ticks. Seed = 600000 + BehaviorSpace run number.
-
-broad-trajectories: initial skill centres 30/70, AI capabilities 30/70/90, task difficulty centre 55. There are 12 conditions and 360 runs, with measurements every 10 ticks. Seed = 500000 + BehaviorSpace run number.
-
-task-difficulty-40, task-difficulty-55, task-difficulty-70: initial skill centres 30/50/70 and AI capabilities 30/60/90, with task difficulty fixed at the value in the experiment name. Each has 18 conditions and 540 runs, with final measurements only; together they comprise 1620 runs. Seed offsets are 200000, 300000 and 400000 respectively, plus BehaviorSpace run number.
-
-These are saved configurations, not evidence that runs have completed. The report identifies the main surface experiment as completed and follow-up designs as planned; historical output provenance must be established separately. Individual task histories are retained in agents but are not exported by the saved summary metrics.
+## SUPPLEMENTARY TRAJECTORY EXPERIMENT
+skill-delegation-trajectories fixes initial skill centre at 50 and difficulty centre at 55. AI capabilities 20, 50, 70, and 90 are crossed with peer weights 0 and 0.04: eight conditions, 12 repetitions each, 96 runs of 700 rounds. Metrics are recorded at setup and after every round. Skill and latest delegation are recorded for the population and all three fixed initial-skill groups; setup delegation is the 50% starting reference. Both experiments export each group's mean starting skill. These trajectories complement the main experiment's endpoint comparisons; repeated rounds are not independent repetitions.
 </info>
   <turtleShapes>
     <shape name="default" rotatable="true" editableColorIndex="0">
@@ -1536,591 +1274,92 @@ These are saved configurations, not evidence that runs have completed. The repor
   </linkShapes>
   <previewCommands>setup repeat 75 [ go ]</previewCommands>
   <experiments>
-    <experiment name="task-difficulty-40" repetitions="30" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
-      <setup>random-seed (200000 + behaviorspace-run-number) setup set run-length 3000</setup>
+    <experiment name="main-experiment" repetitions="20" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="700">
+      <setup>setup</setup>
       <go>go</go>
       <metrics>
-        <metric>mean-skill</metric>
-        <metric>mean-trust</metric>
+        <metric>run-seed</metric>
+        <metric>mean [skill - initial-skill] of humans</metric>
         <metric>mean-delegation</metric>
-        <metric>mean-quality</metric>
-        <metric>mean-duration</metric>
-        <metric>mean-observed-duration</metric>
-        <metric>mean-learning</metric>
-        <metric>mean-erosion</metric>
-        <metric>mean-tasks</metric>
-        <metric>group-mean-skill 0</metric>
         <metric>group-skill-change 0</metric>
         <metric>group-mean-deleg 0</metric>
-        <metric>group-bench-change 0</metric>
-        <metric>group-benchmark 0 40</metric>
-        <metric>group-benchmark-change 0 40</metric>
-        <metric>group-benchmark 0 55</metric>
-        <metric>group-benchmark-change 0 55</metric>
-        <metric>group-benchmark 0 70</metric>
-        <metric>group-benchmark-change 0 70</metric>
-        <metric>group-mean-skill 1</metric>
         <metric>group-skill-change 1</metric>
         <metric>group-mean-deleg 1</metric>
-        <metric>group-bench-change 1</metric>
-        <metric>group-benchmark 1 40</metric>
-        <metric>group-benchmark-change 1 40</metric>
-        <metric>group-benchmark 1 55</metric>
-        <metric>group-benchmark-change 1 55</metric>
-        <metric>group-benchmark 1 70</metric>
-        <metric>group-benchmark-change 1 70</metric>
-        <metric>group-mean-skill 2</metric>
         <metric>group-skill-change 2</metric>
         <metric>group-mean-deleg 2</metric>
-        <metric>group-bench-change 2</metric>
-        <metric>group-benchmark 2 40</metric>
-        <metric>group-benchmark-change 2 40</metric>
-        <metric>group-benchmark 2 55</metric>
-        <metric>group-benchmark-change 2 55</metric>
-        <metric>group-benchmark 2 70</metric>
-        <metric>group-benchmark-change 2 70</metric>
-        <metric>mean [skill - initial-skill] of humans</metric>
-        <metric>mean [initial-skill] of humans</metric>
-        <metric>percent-skill-loss humans 0</metric>
-        <metric>percent-skill-loss humans 5</metric>
-        <metric>skill-sd humans</metric>
-        <metric>recent-delegation humans</metric>
-        <metric>recent-learning humans</metric>
-        <metric>recent-erosion humans</metric>
-        <metric>sum [length recent-task-records] of humans</metric>
-        <metric>count humans with [not empty? recent-task-records]</metric>
-        <metric>mean [quality-curve skill 40] of humans</metric>
-        <metric>mean [quality-curve skill 55] of humans</metric>
-        <metric>mean [quality-curve skill 70] of humans</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 0]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 0]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 0])</metric>
-        <metric>delegation-sd (humans with [skill-group = 0])</metric>
-        <metric>recent-delegation (humans with [skill-group = 0])</metric>
-        <metric>recent-learning (humans with [skill-group = 0])</metric>
-        <metric>recent-erosion (humans with [skill-group = 0])</metric>
-        <metric>count humans with [skill-group = 0 and not empty? recent-task-records]</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 1]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 1]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 1])</metric>
-        <metric>delegation-sd (humans with [skill-group = 1])</metric>
-        <metric>recent-delegation (humans with [skill-group = 1])</metric>
-        <metric>recent-learning (humans with [skill-group = 1])</metric>
-        <metric>recent-erosion (humans with [skill-group = 1])</metric>
-        <metric>count humans with [skill-group = 1 and not empty? recent-task-records]</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 2]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 2]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 2])</metric>
-        <metric>delegation-sd (humans with [skill-group = 2])</metric>
-        <metric>recent-delegation (humans with [skill-group = 2])</metric>
-        <metric>recent-learning (humans with [skill-group = 2])</metric>
-        <metric>recent-erosion (humans with [skill-group = 2])</metric>
-        <metric>count humans with [skill-group = 2 and not empty? recent-task-records]</metric>
-        <metric>200000 + behaviorspace-run-number</metric>
+        <metric>mean [initial-skill] of humans with [skill-group = 0]</metric>
+        <metric>mean [initial-skill] of humans with [skill-group = 1]</metric>
+        <metric>mean [initial-skill] of humans with [skill-group = 2]</metric>
       </metrics>
       <constants>
         <enumeratedValueSet variable="mu-skill">
-          <value value="30"></value>
-          <value value="50"></value>
-          <value value="70"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="ai-capability">
-          <value value="30"></value>
-          <value value="60"></value>
-          <value value="90"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="lambda-peer">
           <value value="0"></value>
-          <value value="0.03"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="mu-diff">
+          <value value="10"></value>
+          <value value="20"></value>
+          <value value="30"></value>
           <value value="40"></value>
-        </enumeratedValueSet>
-      </constants>
-    </experiment>
-    <experiment name="task-difficulty-55" repetitions="30" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
-      <setup>random-seed (300000 + behaviorspace-run-number) setup set run-length 3000</setup>
-      <go>go</go>
-      <metrics>
-        <metric>mean-skill</metric>
-        <metric>mean-trust</metric>
-        <metric>mean-delegation</metric>
-        <metric>mean-quality</metric>
-        <metric>mean-duration</metric>
-        <metric>mean-observed-duration</metric>
-        <metric>mean-learning</metric>
-        <metric>mean-erosion</metric>
-        <metric>mean-tasks</metric>
-        <metric>group-mean-skill 0</metric>
-        <metric>group-skill-change 0</metric>
-        <metric>group-mean-deleg 0</metric>
-        <metric>group-bench-change 0</metric>
-        <metric>group-benchmark 0 40</metric>
-        <metric>group-benchmark-change 0 40</metric>
-        <metric>group-benchmark 0 55</metric>
-        <metric>group-benchmark-change 0 55</metric>
-        <metric>group-benchmark 0 70</metric>
-        <metric>group-benchmark-change 0 70</metric>
-        <metric>group-mean-skill 1</metric>
-        <metric>group-skill-change 1</metric>
-        <metric>group-mean-deleg 1</metric>
-        <metric>group-bench-change 1</metric>
-        <metric>group-benchmark 1 40</metric>
-        <metric>group-benchmark-change 1 40</metric>
-        <metric>group-benchmark 1 55</metric>
-        <metric>group-benchmark-change 1 55</metric>
-        <metric>group-benchmark 1 70</metric>
-        <metric>group-benchmark-change 1 70</metric>
-        <metric>group-mean-skill 2</metric>
-        <metric>group-skill-change 2</metric>
-        <metric>group-mean-deleg 2</metric>
-        <metric>group-bench-change 2</metric>
-        <metric>group-benchmark 2 40</metric>
-        <metric>group-benchmark-change 2 40</metric>
-        <metric>group-benchmark 2 55</metric>
-        <metric>group-benchmark-change 2 55</metric>
-        <metric>group-benchmark 2 70</metric>
-        <metric>group-benchmark-change 2 70</metric>
-        <metric>mean [skill - initial-skill] of humans</metric>
-        <metric>mean [initial-skill] of humans</metric>
-        <metric>percent-skill-loss humans 0</metric>
-        <metric>percent-skill-loss humans 5</metric>
-        <metric>skill-sd humans</metric>
-        <metric>recent-delegation humans</metric>
-        <metric>recent-learning humans</metric>
-        <metric>recent-erosion humans</metric>
-        <metric>sum [length recent-task-records] of humans</metric>
-        <metric>count humans with [not empty? recent-task-records]</metric>
-        <metric>mean [quality-curve skill 40] of humans</metric>
-        <metric>mean [quality-curve skill 55] of humans</metric>
-        <metric>mean [quality-curve skill 70] of humans</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 0]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 0]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 0])</metric>
-        <metric>delegation-sd (humans with [skill-group = 0])</metric>
-        <metric>recent-delegation (humans with [skill-group = 0])</metric>
-        <metric>recent-learning (humans with [skill-group = 0])</metric>
-        <metric>recent-erosion (humans with [skill-group = 0])</metric>
-        <metric>count humans with [skill-group = 0 and not empty? recent-task-records]</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 1]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 1]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 1])</metric>
-        <metric>delegation-sd (humans with [skill-group = 1])</metric>
-        <metric>recent-delegation (humans with [skill-group = 1])</metric>
-        <metric>recent-learning (humans with [skill-group = 1])</metric>
-        <metric>recent-erosion (humans with [skill-group = 1])</metric>
-        <metric>count humans with [skill-group = 1 and not empty? recent-task-records]</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 2]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 2]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 2])</metric>
-        <metric>delegation-sd (humans with [skill-group = 2])</metric>
-        <metric>recent-delegation (humans with [skill-group = 2])</metric>
-        <metric>recent-learning (humans with [skill-group = 2])</metric>
-        <metric>recent-erosion (humans with [skill-group = 2])</metric>
-        <metric>count humans with [skill-group = 2 and not empty? recent-task-records]</metric>
-        <metric>300000 + behaviorspace-run-number</metric>
-      </metrics>
-      <constants>
-        <enumeratedValueSet variable="mu-skill">
-          <value value="30"></value>
           <value value="50"></value>
+          <value value="60"></value>
           <value value="70"></value>
+          <value value="80"></value>
+          <value value="90"></value>
+          <value value="100"></value>
         </enumeratedValueSet>
         <enumeratedValueSet variable="ai-capability">
+          <value value="0"></value>
+          <value value="10"></value>
+          <value value="20"></value>
           <value value="30"></value>
+          <value value="40"></value>
+          <value value="50"></value>
           <value value="60"></value>
+          <value value="70"></value>
+          <value value="80"></value>
           <value value="90"></value>
+          <value value="100"></value>
         </enumeratedValueSet>
         <enumeratedValueSet variable="lambda-peer">
           <value value="0"></value>
-          <value value="0.03"></value>
+          <value value="0.04"></value>
         </enumeratedValueSet>
         <enumeratedValueSet variable="mu-diff">
           <value value="55"></value>
         </enumeratedValueSet>
       </constants>
     </experiment>
-    <experiment name="task-difficulty-70" repetitions="30" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
-      <setup>random-seed (400000 + behaviorspace-run-number) setup set run-length 3000</setup>
+    <experiment name="skill-delegation-trajectories" repetitions="12" sequentialRunOrder="true" runMetricsEveryStep="true" timeLimit="700">
+      <setup>setup</setup>
       <go>go</go>
       <metrics>
+        <metric>run-seed</metric>
         <metric>mean-skill</metric>
-        <metric>mean-trust</metric>
-        <metric>mean-delegation</metric>
-        <metric>mean-quality</metric>
-        <metric>mean-duration</metric>
-        <metric>mean-observed-duration</metric>
-        <metric>mean-learning</metric>
-        <metric>mean-erosion</metric>
-        <metric>mean-tasks</metric>
+        <metric>mean [previous-delegation] of humans</metric>
         <metric>group-mean-skill 0</metric>
-        <metric>group-skill-change 0</metric>
-        <metric>group-mean-deleg 0</metric>
-        <metric>group-bench-change 0</metric>
-        <metric>group-benchmark 0 40</metric>
-        <metric>group-benchmark-change 0 40</metric>
-        <metric>group-benchmark 0 55</metric>
-        <metric>group-benchmark-change 0 55</metric>
-        <metric>group-benchmark 0 70</metric>
-        <metric>group-benchmark-change 0 70</metric>
+        <metric>mean [previous-delegation] of humans with [skill-group = 0]</metric>
+        <metric>mean [initial-skill] of humans with [skill-group = 0]</metric>
         <metric>group-mean-skill 1</metric>
-        <metric>group-skill-change 1</metric>
-        <metric>group-mean-deleg 1</metric>
-        <metric>group-bench-change 1</metric>
-        <metric>group-benchmark 1 40</metric>
-        <metric>group-benchmark-change 1 40</metric>
-        <metric>group-benchmark 1 55</metric>
-        <metric>group-benchmark-change 1 55</metric>
-        <metric>group-benchmark 1 70</metric>
-        <metric>group-benchmark-change 1 70</metric>
+        <metric>mean [previous-delegation] of humans with [skill-group = 1]</metric>
+        <metric>mean [initial-skill] of humans with [skill-group = 1]</metric>
         <metric>group-mean-skill 2</metric>
-        <metric>group-skill-change 2</metric>
-        <metric>group-mean-deleg 2</metric>
-        <metric>group-bench-change 2</metric>
-        <metric>group-benchmark 2 40</metric>
-        <metric>group-benchmark-change 2 40</metric>
-        <metric>group-benchmark 2 55</metric>
-        <metric>group-benchmark-change 2 55</metric>
-        <metric>group-benchmark 2 70</metric>
-        <metric>group-benchmark-change 2 70</metric>
-        <metric>mean [skill - initial-skill] of humans</metric>
-        <metric>mean [initial-skill] of humans</metric>
-        <metric>percent-skill-loss humans 0</metric>
-        <metric>percent-skill-loss humans 5</metric>
-        <metric>skill-sd humans</metric>
-        <metric>recent-delegation humans</metric>
-        <metric>recent-learning humans</metric>
-        <metric>recent-erosion humans</metric>
-        <metric>sum [length recent-task-records] of humans</metric>
-        <metric>count humans with [not empty? recent-task-records]</metric>
-        <metric>mean [quality-curve skill 40] of humans</metric>
-        <metric>mean [quality-curve skill 55] of humans</metric>
-        <metric>mean [quality-curve skill 70] of humans</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 0]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 0]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 0])</metric>
-        <metric>delegation-sd (humans with [skill-group = 0])</metric>
-        <metric>recent-delegation (humans with [skill-group = 0])</metric>
-        <metric>recent-learning (humans with [skill-group = 0])</metric>
-        <metric>recent-erosion (humans with [skill-group = 0])</metric>
-        <metric>count humans with [skill-group = 0 and not empty? recent-task-records]</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 1]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 1]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 1])</metric>
-        <metric>delegation-sd (humans with [skill-group = 1])</metric>
-        <metric>recent-delegation (humans with [skill-group = 1])</metric>
-        <metric>recent-learning (humans with [skill-group = 1])</metric>
-        <metric>recent-erosion (humans with [skill-group = 1])</metric>
-        <metric>count humans with [skill-group = 1 and not empty? recent-task-records]</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 2]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 2]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 2])</metric>
-        <metric>delegation-sd (humans with [skill-group = 2])</metric>
-        <metric>recent-delegation (humans with [skill-group = 2])</metric>
-        <metric>recent-learning (humans with [skill-group = 2])</metric>
-        <metric>recent-erosion (humans with [skill-group = 2])</metric>
-        <metric>count humans with [skill-group = 2 and not empty? recent-task-records]</metric>
-        <metric>400000 + behaviorspace-run-number</metric>
+        <metric>mean [previous-delegation] of humans with [skill-group = 2]</metric>
+        <metric>mean [initial-skill] of humans with [skill-group = 2]</metric>
       </metrics>
       <constants>
         <enumeratedValueSet variable="mu-skill">
-          <value value="30"></value>
           <value value="50"></value>
-          <value value="70"></value>
         </enumeratedValueSet>
         <enumeratedValueSet variable="ai-capability">
-          <value value="30"></value>
-          <value value="60"></value>
-          <value value="90"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="lambda-peer">
-          <value value="0"></value>
-          <value value="0.03"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="mu-diff">
-          <value value="70"></value>
-        </enumeratedValueSet>
-      </constants>
-    </experiment>
-    <experiment name="broad-trajectories" repetitions="30" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
-      <setup>random-seed (500000 + behaviorspace-run-number) setup set run-length 3000</setup>
-      <go>go</go>
-      <runMetricsCondition>ticks mod 10 = 0</runMetricsCondition>
-      <metrics>
-        <metric>mean-skill</metric>
-        <metric>mean-trust</metric>
-        <metric>mean-delegation</metric>
-        <metric>mean-quality</metric>
-        <metric>mean-duration</metric>
-        <metric>mean-observed-duration</metric>
-        <metric>mean-learning</metric>
-        <metric>mean-erosion</metric>
-        <metric>mean-tasks</metric>
-        <metric>group-mean-skill 0</metric>
-        <metric>group-skill-change 0</metric>
-        <metric>group-mean-deleg 0</metric>
-        <metric>group-bench-change 0</metric>
-        <metric>group-benchmark 0 40</metric>
-        <metric>group-benchmark-change 0 40</metric>
-        <metric>group-benchmark 0 55</metric>
-        <metric>group-benchmark-change 0 55</metric>
-        <metric>group-benchmark 0 70</metric>
-        <metric>group-benchmark-change 0 70</metric>
-        <metric>group-mean-skill 1</metric>
-        <metric>group-skill-change 1</metric>
-        <metric>group-mean-deleg 1</metric>
-        <metric>group-bench-change 1</metric>
-        <metric>group-benchmark 1 40</metric>
-        <metric>group-benchmark-change 1 40</metric>
-        <metric>group-benchmark 1 55</metric>
-        <metric>group-benchmark-change 1 55</metric>
-        <metric>group-benchmark 1 70</metric>
-        <metric>group-benchmark-change 1 70</metric>
-        <metric>group-mean-skill 2</metric>
-        <metric>group-skill-change 2</metric>
-        <metric>group-mean-deleg 2</metric>
-        <metric>group-bench-change 2</metric>
-        <metric>group-benchmark 2 40</metric>
-        <metric>group-benchmark-change 2 40</metric>
-        <metric>group-benchmark 2 55</metric>
-        <metric>group-benchmark-change 2 55</metric>
-        <metric>group-benchmark 2 70</metric>
-        <metric>group-benchmark-change 2 70</metric>
-        <metric>mean [skill - initial-skill] of humans</metric>
-        <metric>mean [initial-skill] of humans</metric>
-        <metric>percent-skill-loss humans 0</metric>
-        <metric>percent-skill-loss humans 5</metric>
-        <metric>skill-sd humans</metric>
-        <metric>recent-delegation humans</metric>
-        <metric>recent-learning humans</metric>
-        <metric>recent-erosion humans</metric>
-        <metric>sum [length recent-task-records] of humans</metric>
-        <metric>count humans with [not empty? recent-task-records]</metric>
-        <metric>mean [quality-curve skill 40] of humans</metric>
-        <metric>mean [quality-curve skill 55] of humans</metric>
-        <metric>mean [quality-curve skill 70] of humans</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 0]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 0]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 0])</metric>
-        <metric>delegation-sd (humans with [skill-group = 0])</metric>
-        <metric>recent-delegation (humans with [skill-group = 0])</metric>
-        <metric>recent-learning (humans with [skill-group = 0])</metric>
-        <metric>recent-erosion (humans with [skill-group = 0])</metric>
-        <metric>count humans with [skill-group = 0 and not empty? recent-task-records]</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 1]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 1]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 1])</metric>
-        <metric>delegation-sd (humans with [skill-group = 1])</metric>
-        <metric>recent-delegation (humans with [skill-group = 1])</metric>
-        <metric>recent-learning (humans with [skill-group = 1])</metric>
-        <metric>recent-erosion (humans with [skill-group = 1])</metric>
-        <metric>count humans with [skill-group = 1 and not empty? recent-task-records]</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 2]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 2]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 2])</metric>
-        <metric>delegation-sd (humans with [skill-group = 2])</metric>
-        <metric>recent-delegation (humans with [skill-group = 2])</metric>
-        <metric>recent-learning (humans with [skill-group = 2])</metric>
-        <metric>recent-erosion (humans with [skill-group = 2])</metric>
-        <metric>count humans with [skill-group = 2 and not empty? recent-task-records]</metric>
-        <metric>500000 + behaviorspace-run-number</metric>
-      </metrics>
-      <constants>
-        <enumeratedValueSet variable="mu-skill">
-          <value value="30"></value>
-          <value value="70"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="ai-capability">
-          <value value="30"></value>
+          <value value="20"></value>
+          <value value="50"></value>
           <value value="70"></value>
           <value value="90"></value>
         </enumeratedValueSet>
         <enumeratedValueSet variable="lambda-peer">
           <value value="0"></value>
-          <value value="0.03"></value>
+          <value value="0.04"></value>
         </enumeratedValueSet>
         <enumeratedValueSet variable="mu-diff">
           <value value="55"></value>
-        </enumeratedValueSet>
-      </constants>
-    </experiment>
-    <experiment name="transition-trajectories" repetitions="30" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
-      <setup>random-seed (600000 + behaviorspace-run-number) setup set run-length 3000</setup>
-      <go>go</go>
-      <runMetricsCondition>ticks mod 10 = 0</runMetricsCondition>
-      <metrics>
-        <metric>mean-skill</metric>
-        <metric>mean-trust</metric>
-        <metric>mean-delegation</metric>
-        <metric>mean-quality</metric>
-        <metric>mean-duration</metric>
-        <metric>mean-observed-duration</metric>
-        <metric>mean-learning</metric>
-        <metric>mean-erosion</metric>
-        <metric>mean-tasks</metric>
-        <metric>group-mean-skill 0</metric>
-        <metric>group-skill-change 0</metric>
-        <metric>group-mean-deleg 0</metric>
-        <metric>group-bench-change 0</metric>
-        <metric>group-benchmark 0 40</metric>
-        <metric>group-benchmark-change 0 40</metric>
-        <metric>group-benchmark 0 55</metric>
-        <metric>group-benchmark-change 0 55</metric>
-        <metric>group-benchmark 0 70</metric>
-        <metric>group-benchmark-change 0 70</metric>
-        <metric>group-mean-skill 1</metric>
-        <metric>group-skill-change 1</metric>
-        <metric>group-mean-deleg 1</metric>
-        <metric>group-bench-change 1</metric>
-        <metric>group-benchmark 1 40</metric>
-        <metric>group-benchmark-change 1 40</metric>
-        <metric>group-benchmark 1 55</metric>
-        <metric>group-benchmark-change 1 55</metric>
-        <metric>group-benchmark 1 70</metric>
-        <metric>group-benchmark-change 1 70</metric>
-        <metric>group-mean-skill 2</metric>
-        <metric>group-skill-change 2</metric>
-        <metric>group-mean-deleg 2</metric>
-        <metric>group-bench-change 2</metric>
-        <metric>group-benchmark 2 40</metric>
-        <metric>group-benchmark-change 2 40</metric>
-        <metric>group-benchmark 2 55</metric>
-        <metric>group-benchmark-change 2 55</metric>
-        <metric>group-benchmark 2 70</metric>
-        <metric>group-benchmark-change 2 70</metric>
-        <metric>mean [skill - initial-skill] of humans</metric>
-        <metric>mean [initial-skill] of humans</metric>
-        <metric>percent-skill-loss humans 0</metric>
-        <metric>percent-skill-loss humans 5</metric>
-        <metric>skill-sd humans</metric>
-        <metric>recent-delegation humans</metric>
-        <metric>recent-learning humans</metric>
-        <metric>recent-erosion humans</metric>
-        <metric>sum [length recent-task-records] of humans</metric>
-        <metric>count humans with [not empty? recent-task-records]</metric>
-        <metric>mean [quality-curve skill 40] of humans</metric>
-        <metric>mean [quality-curve skill 55] of humans</metric>
-        <metric>mean [quality-curve skill 70] of humans</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 0]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 0]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 0])</metric>
-        <metric>delegation-sd (humans with [skill-group = 0])</metric>
-        <metric>recent-delegation (humans with [skill-group = 0])</metric>
-        <metric>recent-learning (humans with [skill-group = 0])</metric>
-        <metric>recent-erosion (humans with [skill-group = 0])</metric>
-        <metric>count humans with [skill-group = 0 and not empty? recent-task-records]</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 1]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 1]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 1])</metric>
-        <metric>delegation-sd (humans with [skill-group = 1])</metric>
-        <metric>recent-delegation (humans with [skill-group = 1])</metric>
-        <metric>recent-learning (humans with [skill-group = 1])</metric>
-        <metric>recent-erosion (humans with [skill-group = 1])</metric>
-        <metric>count humans with [skill-group = 1 and not empty? recent-task-records]</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 2]) 0</metric>
-        <metric>percent-skill-loss (humans with [skill-group = 2]) 5</metric>
-        <metric>skill-sd (humans with [skill-group = 2])</metric>
-        <metric>delegation-sd (humans with [skill-group = 2])</metric>
-        <metric>recent-delegation (humans with [skill-group = 2])</metric>
-        <metric>recent-learning (humans with [skill-group = 2])</metric>
-        <metric>recent-erosion (humans with [skill-group = 2])</metric>
-        <metric>count humans with [skill-group = 2 and not empty? recent-task-records]</metric>
-        <metric>600000 + behaviorspace-run-number</metric>
-      </metrics>
-      <constants>
-        <enumeratedValueSet variable="mu-skill">
-          <value value="50"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="ai-capability">
-          <value value="50"></value>
-          <value value="55"></value>
-          <value value="60"></value>
-          <value value="65"></value>
-          <value value="70"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="lambda-peer">
-          <value value="0"></value>
-          <value value="0.03"></value>
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="mu-diff">
-          <value value="55"></value>
-        </enumeratedValueSet>
-      </constants>
-    </experiment>
-    <experiment name="skill-ai-surface" repetitions="30" sequentialRunOrder="true" runMetricsEveryStep="false" timeLimit="3000">
-      <setup>random-seed (10000 + behaviorspace-run-number) setup set run-length 3000</setup>
-      <go>go</go>
-      <metrics>
-        <metric>mean-skill</metric>
-        <metric>mean-trust</metric>
-        <metric>mean-delegation</metric>
-        <metric>mean-quality</metric>
-        <metric>mean-duration</metric>
-        <metric>mean-observed-duration</metric>
-        <metric>mean-learning</metric>
-        <metric>mean-erosion</metric>
-        <metric>mean-tasks</metric>
-        <metric>group-mean-skill 0</metric>
-        <metric>group-skill-change 0</metric>
-        <metric>group-mean-deleg 0</metric>
-        <metric>group-bench-change 0</metric>
-        <metric>group-benchmark 0 40</metric>
-        <metric>group-benchmark-change 0 40</metric>
-        <metric>group-benchmark 0 55</metric>
-        <metric>group-benchmark-change 0 55</metric>
-        <metric>group-benchmark 0 70</metric>
-        <metric>group-benchmark-change 0 70</metric>
-        <metric>group-mean-skill 1</metric>
-        <metric>group-skill-change 1</metric>
-        <metric>group-mean-deleg 1</metric>
-        <metric>group-bench-change 1</metric>
-        <metric>group-benchmark 1 40</metric>
-        <metric>group-benchmark-change 1 40</metric>
-        <metric>group-benchmark 1 55</metric>
-        <metric>group-benchmark-change 1 55</metric>
-        <metric>group-benchmark 1 70</metric>
-        <metric>group-benchmark-change 1 70</metric>
-        <metric>group-mean-skill 2</metric>
-        <metric>group-skill-change 2</metric>
-        <metric>group-mean-deleg 2</metric>
-        <metric>group-bench-change 2</metric>
-        <metric>group-benchmark 2 40</metric>
-        <metric>group-benchmark-change 2 40</metric>
-        <metric>group-benchmark 2 55</metric>
-        <metric>group-benchmark-change 2 55</metric>
-        <metric>group-benchmark 2 70</metric>
-        <metric>group-benchmark-change 2 70</metric>
-        <metric>10000 + behaviorspace-run-number</metric>
-        <metric>mean [initial-skill] of humans</metric>
-        <metric>mean [skill - initial-skill] of humans</metric>
-        <metric>mean [latest-deleg] of humans with [n-tasks &gt; 0]</metric>
-      </metrics>
-      <constants>
-        <enumeratedValueSet variable="mu-skill">
-          <value value="20" />
-          <value value="30" />
-          <value value="40" />
-          <value value="50" />
-          <value value="60" />
-          <value value="70" />
-          <value value="80" />
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="ai-capability">
-          <value value="20" />
-          <value value="30" />
-          <value value="40" />
-          <value value="50" />
-          <value value="60" />
-          <value value="70" />
-          <value value="80" />
-          <value value="90" />
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="lambda-peer">
-          <value value="0" />
-          <value value="0.03" />
-        </enumeratedValueSet>
-        <enumeratedValueSet variable="mu-diff">
-          <value value="55" />
         </enumeratedValueSet>
       </constants>
     </experiment>
